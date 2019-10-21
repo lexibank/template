@@ -1,139 +1,76 @@
 from pathlib import Path
-
-from pylexibank.dataset import MyDataset
+from pylexibank.dataset import Dataset as BaseDataset
 from pylexibank.util import pb
-
-# Customize your basic data
-import attr
-from pylexibank import Concept, Language, Lexeme, Cognate
-
-@attr.s
-class NewConcept(Concept):
-    Attribute1 = attr.ib(default=None)
-    Attribute2 = attr.ib(default=None)
-
-@attr.s
-class NewLanguage(Language):
-    Attribute1 = attr.ib(default=None)
-    Attribute2 = attr.ib(default=None)
-
-@attr.s
-class NewLexeme(Lexeme):
-    Attribute1 = attr.ib(default=None)
-    Attribute2 = attr.ib(default=None)
-
-@attr.s
-class NewCognate(Cognate):
-    Attribute1 = attr.ib(default=None)
-    Attribute2 = attr.ib(default=None)
-
-# form specification
 from pylexibank.forms import FormSpec
 
-class Dataset(MyDataset):
-    dir = Path(__file__).parent
-    id = "template"
+# Customize your basic data.
+# if you need to store other data in columns than the lexibank defaults, then over-ride
+# the table type and add the required columns e.g. 
+#
+# import attr
+# from pylexibank import Concept as BaseConcept  ( or Language, Lexeme, or Cognate)
+#
+# @attr.s
+# class Concept(Concept):
+#    MyAttribute1 = attr.ib(default=None)
 
-    # add your personalized data types here
-    concept_class = MyConcept
-    language_class = MyLanguage
-    lexeme_class = MyLexeme
-    cognate_class = MyCognate
+class Dataset(BaseDataset):
+    dir = Path(__file__).parent
+    id = "template"  # TODO - update this to match your datasets's name!
+
+    # add your personalized data types here (or language_class, lexeme_class, cognate_class)
+    #concept_class = MyConcept
 
     # define the way in which forms should be handled
     form_spec = FormSpec(
-            brackets={"(": ")"},
-            separators = ";/,",
-            missing_data = ('?', '-'),
-            strip_inside_brackets=True
-            )
+        brackets = {"(": ")"},  # characters that function as brackets
+        separators = ";/,",  # characters that split forms e.g. "a, b".
+        missing_data = ('?', '-'),  # characters that denote missing data.
+        strip_inside_brackets = True   # do you want data removed in brackets or not?
+    )
 
     def cmd_download(self, args):
-        with self.raw_dir.temp_download(
-                "http://www.example.com",
-                "example.tsv"
-                ) as p:
-            data = p
-
-        self.raw_dir.write_csv(
-            'template.csv',
-            [x for x in data]
-            )
+        with self.raw_dir.temp_download("http://www.example.com", "example.tsv") as data:
+            self.raw_dir.write_csv('template.csv', data)
 
     def cmd_makecldf(self, args):
         """
         Convert the raw data to a CLDF dataset.
         """
         data = self.raw_dir.read_csv('template.csv', dicts=True)
-        languages, concepts = {}, {}
         
         # short cut to add concepts and languages, provided your name spaces
-        # match
+        # match lexibank's expected format.
         args.writer.add_concepts()
         args.writer.add_languages()
 
-        # detailed way to do it
-        for concept in self.concepts:
-            args.writer.add_concept(
-                    ID=concept['ID'],
-                    Name=concept['ENGLISH'])
-                    Concepticon_ID=concept['CONCEPTICON_ID'],
-        for language in self.languages:
-            args.writer.add_language(
-                    ID=language['ID'],
-                    Glottolog=language['Glottolog']
-                    )
-
-        for concept in self.conceptlist.concepts.values():
-            args.writer.add_concept(
-                    ID=concept.number,
-                    Name=concept.gloss,
-                    Concepticon_ID=concept.concepticon_id,
-                    Concepticon_Gloss=concept.concepticon_gloss,
-                    Chinese_Gloss=concept.attributes['chinese']
-            )
-            concepts[concept.attributes['chinese']] = concept.number
-
+        # if not, then here is a more detailed way to do it:
+        # for concept in self.concepts:
+        #     args.writer.add_concept(
+        #         ID=concept['ID'],
+        #         Name=concept['ENGLISH'],
+        #         Concepticon_ID=concept['CONCEPTICON_ID']
+        #     )
+        # for language in self.languages:
+        #     args.writer.add_language(
+        #         ID=language['ID'],
+        #         Glottolog=language['Glottolog']
+        #     )
         
+        # add data
         for row in pb(data, desc='cldfify'):
-            # add form without segments
+            # .. if you have segmentable data, replace `add_form` with `add_form_with_segments`
+            # .. TODO @Mattis, when should we use add_forms_from_value() instead?
             lex = args.writer.add_form(
-                    Language_ID=row['Language_ID'],
-                    Parameter_ID=row['Parameter_ID'],
-                    Value=row['Word'],
-                    Form=row['Word'],
-                    Source=[row['Source']],
-                    )
+                Language_ID=row['Language_ID'],
+                Parameter_ID=row['Parameter_ID'],
+                Value=row['Word'],
+                Form=row['Word'],
+                Source=[row['Source']],
+            )
+            
+            # add cognates -- make sure Cognateset_ID is global! 
             args.writer.add_cognate(
-                    lexeme=lex,
-                    Cognateset_ID=line['Cognateset_ID']
-                    )
-
-            # add form with segments
-            lex = args.writer.add_form_with_segments(
-                    Language_ID=row['Language_ID'],
-                    Parameter_ID=row['Parameter_ID'],
-                    Value=row['Word'],
-                    Form=row['Word'],
-                    Segments=row['Segments'],
-                    Source=[row['Source']],
-                    )
-            args.writer.add_cognate(
-                    lexeme=lex,
-                    Cognateset_ID=line['Cognateset_ID']
-                    )
-
-            # add forms from value 
-            for lex in args.writer.add_forms_from_value(
-                    Language_ID=row['Language_ID'],
-                    Parameter_ID=row['Parameter_ID'],
-                    Value=row['Word'],
-                    Source=[row['Source']],
-                    ):
-                args.writer.add_cognate(
-                        lexeme=lex,
-                        Cognateset_ID=line['Cognateset_ID']
-                        )
-
-
-                    
+                lexeme=lex,
+                Cognateset_ID=line['Cognateset_ID']
+            )
